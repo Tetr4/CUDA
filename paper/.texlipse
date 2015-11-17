@@ -1,0 +1,14 @@
+#TeXlipse project settings
+#Tue Nov 17 16:12:44 CET 2015
+markTmpDer=true
+builderNum=2
+outputDir=
+makeIndSty=
+bibrefDir=
+outputFormat=pdf
+tempDir=tmp
+mainTexFile=CudaPaper.tex
+outputFile=CudaPaper.pdf
+langSpell=de
+markDer=true
+srcDir=

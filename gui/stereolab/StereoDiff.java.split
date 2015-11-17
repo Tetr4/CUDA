@@ -1,0 +1,133 @@
+package stereolab;
+
+import javax.swing.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+public class StereoDiff extends StereoAlgorithm {
+
+	public StereoDiff(int B, int H, int TauMax, boolean U, int S, boolean F) {
+		super(B, H, TauMax, U, S, F);
+	}
+
+	public String toString() {
+		String st = "Algorithmus:              Betrag der Diff.\n"
+				+ "Fenstergöße:              " + String.valueOf(b) + " x "
+				+ String.valueOf(h) + "\n" + "Tau max:                  "
+				+ String.valueOf(tauMax) + "\n" + "Schwellwert/Fenster-Fkt.: "
+				+ (useS ? "ja" : "nein") + "/" + (useF ? "ja" : "nein");
+		if (useS)
+			st = st + "\nSchwellwert:              " + String.valueOf(s);
+		return (st);
+	}
+
+	public RangeProfile calc(byte[][] lb, byte[][] rb, TimerProgressBar p) {
+
+		System.out.println("Starting StereoDiff calculation...");
+		long start = System.nanoTime();
+
+		final int zeilen = lb.length;
+		final int spalten = lb[0].length;
+		final int xu = -b / 2;
+		final int xo = (b % 2 == 1) ? b / 2 : b / 2 - 1;
+		final int yu = -h / 2;
+		final int yo = (h % 2 == 1) ? h / 2 : h / 2 - 1;
+		final int wc = b / 2 + h / 2 + 1; // Eintrag in der "Mitte" der Fensterfkt.
+
+		final byte[][] links  = lb;
+		final byte[][] rechts = rb;
+
+		final RangeProfile profile = new RangeProfile(zeilen, spalten);
+
+		class OneShotTask implements Runnable {
+			int grenzeLinks;
+			int grenzeRechts;
+
+    		OneShotTask(int grenzeLinks, int grenzeRechts) {
+				this.grenzeLinks=grenzeLinks;
+				this.grenzeRechts=grenzeRechts;
+			}
+
+            @Override
+			public void run() {
+				int optIndex;
+				int optWert;
+				int wert;
+				boolean val;
+                for (int i = 0; i < zeilen; i++) for (int j = grenzeLinks; j < grenzeRechts; j++) {
+                    if ((i + yu < 0) | (i + yo >= zeilen) | (j + xu - tauMax < 0)| (j + xo + tauMax >= spalten)) {
+                        profile.setProfile(i, j, 0);
+	                    profile.setValid(i, j, false);
+	               } else {
+	                    optWert = Integer.MAX_VALUE;
+                        optIndex = 0;
+                        val = false;
+                        for (int tau = -tauMax; tau <= tauMax; tau++) {
+                            wert = 0;
+						    for (int k = xu; k <= xo; k++) {
+							for (int l = yu; l <= yo; l++) {
+								wert = wert
+								+ Math.abs(StereoToolkit
+										.unsignedByteToInt(links[i + l][j
+												+ k])
+										- StereoToolkit
+												.unsignedByteToInt(rechts[i
+														+ l][j + k
+														+ tau]))
+								* (useF ? wc - Math.abs(l)
+										- Math.abs(k) : 1);
+							}
+						    }
+						    if (wert < optWert) {
+							    optWert = wert;
+							    optIndex = tau;
+							    val = true;
+						    } else if (wert == optWert) {
+						    	val = false;
+						    }
+					    }
+					    if ((useS) && (optWert > s)) val = false;
+					    profile.setProfile(i, j, optIndex);
+					    profile.setValid(i, j, val);
+				    }
+        		}
+    		}
+        }
+
+        int cores = Runtime.getRuntime().availableProcessors();
+        int maxThreads = cores;
+        int chunkLength = spalten / maxThreads;
+        Thread[] threads = new Thread[maxThreads];
+
+        for (int i = 0; i < maxThreads; i++) {
+            p.setValue(i/maxThreads);
+
+            // create thread
+            int grenzeLinks = i * chunkLength;
+            int grenzeRechts = grenzeLinks + chunkLength;
+            threads[i] = new Thread(new OneShotTask(grenzeLinks, grenzeRechts));;
+
+            // start thread
+            threads[i].start();
+        }
+
+        // wait for all threads to finish
+        for(Thread thread: threads) {
+            try{
+                thread.join();
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+
+
+		long stop = System.nanoTime();
+
+		System.out.println("Finished StereoDiff calculation... (took "
+				+ (stop - start) / 1000000.0 + " ms)");
+
+		return (profile);
+
+	}
+
+}

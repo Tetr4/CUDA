@@ -1,0 +1,4 @@
+/gsoap
+*.class
+*.o
+*.so

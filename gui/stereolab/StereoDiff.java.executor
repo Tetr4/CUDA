@@ -1,0 +1,117 @@
+package stereolab;
+
+import javax.swing.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+public class StereoDiff extends StereoAlgorithm {
+
+	public StereoDiff(int B, int H, int TauMax, boolean U, int S, boolean F) {
+		super(B, H, TauMax, U, S, F);
+	}
+
+	public String toString() {
+		String st = "Algorithmus:              Betrag der Diff.\n"
+				+ "Fenstergöße:              " + String.valueOf(b) + " x "
+				+ String.valueOf(h) + "\n" + "Tau max:                  "
+				+ String.valueOf(tauMax) + "\n" + "Schwellwert/Fenster-Fkt.: "
+				+ (useS ? "ja" : "nein") + "/" + (useF ? "ja" : "nein");
+		if (useS)
+			st = st + "\nSchwellwert:              " + String.valueOf(s);
+		return (st);
+	}
+
+	public RangeProfile calc(byte[][] lb, byte[][] rb, TimerProgressBar p) {
+
+		System.out.println("Starting StereoDiff calculation...");
+		long start = System.nanoTime();
+
+		final int zeilen = lb.length;
+		final int spalten = lb[0].length;
+		final int xu = -b / 2;
+		final int xo = (b % 2 == 1) ? b / 2 : b / 2 - 1;
+		final int yu = -h / 2;
+		final int yo = (h % 2 == 1) ? h / 2 : h / 2 - 1;
+		final int wc = b / 2 + h / 2 + 1; // Eintrag in der "Mitte" der Fensterfkt.
+
+		final byte[][] links  = lb;
+		final byte[][] rechts = rb;
+
+		ExecutorService executor = Executors.newFixedThreadPool(8);
+		final RangeProfile profile = new RangeProfile(zeilen, spalten);
+
+		class OneShotTask implements Runnable {
+			int i;
+			int j;
+
+        		OneShotTask(int i, int j) {
+				this.i=i;
+				this.j=j;
+			}
+
+			public void run() {
+				int optIndex;
+				int optWert;
+				int wert;
+				boolean val;
+    			if ((this.i + yu < 0) | (this.i + yo >= zeilen) | (this.j + xu - tauMax < 0)| (this.j + xo + tauMax >= spalten)) {
+					profile.setProfile(this.i, this.j, 0);
+					profile.setValid(this.i, this.j, false);
+				} else {
+					optWert = Integer.MAX_VALUE;
+					optIndex = 0;
+					val = false;
+					for (int tau = -tauMax; tau <= tauMax; tau++) {
+						wert = 0;
+						for (int k = xu; k <= xo; k++) {
+							for (int l = yu; l <= yo; l++) {
+								wert = wert
+								+ Math.abs(StereoToolkit
+										.unsignedByteToInt(links[this.i + l][this.j
+												+ k])
+										- StereoToolkit
+												.unsignedByteToInt(rechts[this.i
+														+ l][this.j + k
+														+ tau]))
+								* (useF ? wc - Math.abs(l)
+										- Math.abs(k) : 1);
+							}
+						}
+						if (wert < optWert) {
+							optWert = wert;
+							optIndex = tau;
+							val = true;
+						} else if (wert == optWert) {
+							val = false;
+						}
+					}
+					if ((useS) && (optWert > s)) val = false;
+					profile.setProfile(this.i, this.j, optIndex);
+					profile.setValid(this.i, this.j, val);
+				}
+        		}
+    		}
+
+		for (int i = 0; i < zeilen; i++) {
+			p.setValue(i);
+				for (int j = 0; j < spalten; j++) {
+
+				Runnable worker = new OneShotTask(i,j);
+            			executor.execute(worker);
+          			}
+			}
+
+		executor.shutdown();
+        	while (!executor.isTerminated()) {
+        	}
+
+		long stop = System.nanoTime();
+
+		System.out.println("Finished StereoDiff calculation... (took "
+				+ (stop - start) / 1000000.0 + " ms)");
+
+		return (profile);
+
+	}
+
+}
